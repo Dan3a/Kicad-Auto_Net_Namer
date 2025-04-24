@@ -9,5 +9,5 @@ When using KICAD to copy boards, nets are automatically assigned in batches for 
 
 
 <a id="chinese"></a>
-在使用kicad进行抄板时，自动为没用网络的焊盘，布线，铺铜等添加网络
+在使用kicad进行抄板时，自动为没有网络的焊盘，布线，铺铜等添加网络
 
