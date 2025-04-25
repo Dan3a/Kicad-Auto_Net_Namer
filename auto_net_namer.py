@@ -1,14 +1,14 @@
 import pcbnew
 import wx
 from collections import defaultdict
-
+import os
 class AutoNetNamerPlugin(pcbnew.ActionPlugin):
     def defaults(self):
         self.name = "Auto Net Namer"
         self.category = "Design Automation"
         self.description = "Automatically assign names to physically connected but unnamed nets"
         self.show_toolbar_button = True
-        self.icon_file_name = ""
+        self.icon_file_name = os.path.join(os.path.dirname(__file__), "auto_net_namer.png")
 
     def Run(self):
         board = pcbnew.GetBoard()
