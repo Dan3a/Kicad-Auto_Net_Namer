@@ -8,7 +8,11 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
         self.category = "Design Automation"
         self.description = "Automatically assign names to physically connected but unnamed nets"
         self.show_toolbar_button = True
-        self.icon_file_name = os.path.join(os.path.dirname(__file__), "auto_net_namer.png")
+        #self.icon_file_name = os.path.join(os.path.dirname(__file__), "auto_net_namer.png")
+        try:
+            self.icon_file_name = os.path.join(os.path.dirname(__file__), "auto_net_namer.png")
+        except (FileNotFoundError, Exception):
+            pass
 
     def Run(self):
         board = pcbnew.GetBoard()
