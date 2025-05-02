@@ -49,8 +49,12 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
             if not new_net:
                 new_net = pcbnew.NETINFO_ITEM(board, new_name)
                 board.Add(new_net)
-                
+
             for item in connection_group:
+                if isinstance(item, pcbnew.PAD):
+                    if item.GetNumber() in ["0","MP"]:#如果焊盘是0或者MP，则给予GND网络
+                        new_net = pcbnew.NETINFO_ITEM(board, "GND")
+                        board.Add(new_net)
                 item.SetNet(new_net)
                 
             used_net_names.add(new_name)
