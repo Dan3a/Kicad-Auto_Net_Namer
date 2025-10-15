@@ -1,3 +1,7 @@
+This fork only changes its behaviour for unconnected pins, so it doesn't add net names for those.
+
+---
+
 # Kicad-Auto_Net_Namer Plugin
 [English](#english) | [中文](#chinese)
 
