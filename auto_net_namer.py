@@ -17,34 +17,38 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
     def Run(self):
         board = pcbnew.GetBoard()
         
-        # 获取所有未命名的物理连接
+        # Get all physically connected items without net names
         connected_items = self.find_connected_items(board)
         
-        # 收集已使用的网络名称
+        # Collect all already used net names
         used_net_names = {net.GetNetname() for net in board.GetNetInfo().NetsByNetcode().values() if net.GetNetname()}
         
         net_prefix = "AUTO_"
         counter = 1
         named_connections = 0
         
-        # 为每个连接组创建网络
+        # Create a new net for each connection group
         for connection_group in connected_items:
-            if not connection_group:  # 跳过空组
+            if not connection_group:  # Skip empty groups
                 continue
                 
-            # 检查是否已经有网络名称
+            # Check if this group already has a net name
             existing_net = self.get_existing_net(connection_group)
             if existing_net:
-                continue  # 跳过已有网络的连接
+                continue  # Skip groups with existing nets
                 
-            # 创建新网络
+            group_has_conductors = any(isinstance(it, (pcbnew.PCB_TRACK, pcbnew.ZONE)) for it in connection_group)
+            if not group_has_conductors:
+                continue
+
+            # Create a new net name
             while True:
                 new_name = f"{net_prefix}{counter}"
                 if new_name not in used_net_names:
                     break
                 counter += 1
                 
-            # 创建网络并分配给所有连接项
+            # Create the net and assign it to all connected items
             new_net = board.FindNet(new_name)
             if not new_net:
                 new_net = pcbnew.NETINFO_ITEM(board, new_name)
@@ -52,19 +56,27 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
 
             for item in connection_group:
                 if isinstance(item, pcbnew.PAD):
-                    if item.GetNumber() in ["0","MP"]:#如果焊盘是0或者MP，则给予GND网络
-                        new_net = pcbnew.NETINFO_ITEM(board, "GND")
-                        board.Add(new_net)
-                item.SetNet(new_net)
+                    # Only assign a net to pads when they’re actually connected to conductors
+                    if item.GetNumber() in ["0", "MP"]:
+                        gnd = board.FindNet("GND")
+                        if not gnd:
+                            gnd = pcbnew.NETINFO_ITEM(board, "GND")
+                            board.Add(gnd)
+                        item.SetNet(gnd)
+                    else:
+                        item.SetNet(new_net)
+                else:
+                    # Tracks/zones always get the new net
+                    item.SetNet(new_net)
                 
             used_net_names.add(new_name)
             counter += 1
             named_connections += 1
         
-        # 更新PCB
+        # Refresh the PCB display
         pcbnew.Refresh()
         
-        # 显示结果
+        # Display results
         wx.MessageBox(
             f"Created {named_connections} new nets for previously unnamed connections.",
             "Auto Net Namer",
@@ -72,28 +84,28 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
         )
 
     def find_connected_items(self, board):
-        """查找所有物理连接但未命网络的项"""
-        # 获取所有需要检查的项
+        """Find all physically connected but unnamed items"""
+        # Get all items to check
         all_items = []
         
-        # 收集所有未命名或默认命名的项
+        # Collect all items with empty or default net names
         for track in board.GetTracks():
             net = track.GetNet()
-            if not net or not net.GetNetname():  # 检测空网络名
+            if not net or not net.GetNetname():  # Detect empty net name
                 all_items.append(track)
         
         for zone in board.Zones():
             net = zone.GetNet()
-            if not net or not net.GetNetname():  # 检测空网络名
+            if not net or not net.GetNetname():  # Detect empty net name
                 all_items.append(zone)
         
         for footprint in board.GetFootprints():
             for pad in footprint.Pads():
                 net = pad.GetNet()
-                if not net or not net.GetNetname():  # 检测空网络名
+                if not net or not net.GetNetname():  # Detect empty net name
                     all_items.append(pad)
         
-        # 使用字典来跟踪访问状态
+        # Use a set to track visited items
         visited = set()
         connected_groups = []
         
@@ -102,7 +114,7 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
             if item_id in visited:
                 continue
                 
-            # 使用BFS查找所有连接的项
+            # Use BFS to find all connected items
             queue = [item]
             connected_group = []
             
@@ -116,7 +128,7 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
                 visited.add(current_id)
                 connected_group.append(current)
                 
-                # 查找物理连接的项
+                # Find physically connected items
                 for other in all_items:
                     other_id = self.get_item_id(other)
                     if other_id in visited:
@@ -131,32 +143,32 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
         return connected_groups
 
     def get_item_id(self, item):
-        """为每个项生成唯一标识符"""
-        return str(id(item))  # 直接使用对象id确保唯一性
+        """Generate a unique ID for each item"""
+        return str(id(item))  # Use Python's object id to ensure uniqueness
 
     def are_physically_connected(self, board, item1, item2):
-        """改进的物理连接检测"""
-        # 对于焊盘和导线/焊盘的连接
+        """Improved physical connection detection"""
+        # For pad-to-track or pad-to-zone connections
         if isinstance(item1, pcbnew.PAD) or isinstance(item2, pcbnew.PAD):
             pad = item1 if isinstance(item1, pcbnew.PAD) else item2
             other = item2 if isinstance(item1, pcbnew.PAD) else item1
             
-            # 检查焊盘是否与导线连接
+            # Check if the pad is connected to a track
             if isinstance(other, pcbnew.PCB_TRACK):
                 return pad.HitTest(other.GetStart()) or pad.HitTest(other.GetEnd())
-            # 检查焊盘是否在铺铜区域内
+            # Check if the pad is inside a copper zone
             elif isinstance(other, pcbnew.ZONE):
                 return other.HitTest(pad.GetPosition())
         
-        # 对于导线和导线的连接
+        # For track-to-track connections
         elif isinstance(item1, pcbnew.PCB_TRACK) and isinstance(item2, pcbnew.PCB_TRACK):
-            # 检查是否有共享端点
+            # Check for shared endpoints
             return (item1.GetStart() == item2.GetStart() or 
                     item1.GetStart() == item2.GetEnd() or
                     item1.GetEnd() == item2.GetStart() or
                     item1.GetEnd() == item2.GetEnd())
         
-        # 对于铺铜和其他项
+        # For zone-to-anything connections
         elif isinstance(item1, pcbnew.ZONE) or isinstance(item2, pcbnew.ZONE):
             zone = item1 if isinstance(item1, pcbnew.ZONE) else item2
             other = item2 if isinstance(item1, pcbnew.ZONE) else item1
@@ -169,12 +181,12 @@ class AutoNetNamerPlugin(pcbnew.ActionPlugin):
         return False
 
     def get_existing_net(self, items):
-        """检查连接组中是否已有网络"""
+        """Check if the connection group already has a net assigned"""
         for item in items:
             net = item.GetNet()
-            if net and net.GetNetname():  # 只返回有名称的网络
+            if net and net.GetNetname():  # Return the first existing net found
                 return net
         return None
 
-# 注册插件
+# Register the plugin
 AutoNetNamerPlugin().register()
